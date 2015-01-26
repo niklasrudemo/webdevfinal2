@@ -1,0 +1,25 @@
+<div class"right">
+	edit
+ 	| {{logged_in_user}} (<a href="/logout">logout</a>) | <a href="/signup">signup</a>
+</div>
+
+    <h2>/login/</h2>
+
+	<form method="post">
+	<label>
+		<div>Username</div>
+		<input type="text" name="username" value="{{username}}">
+	</label>
+
+	<label>
+		<div>Password</div>
+		<input type="password" name="password" value="{{password}}">
+	</label>
+
+	<div class="error">{{error}}</div>
+
+	<input type="submit">
+
+</form>
+
+
