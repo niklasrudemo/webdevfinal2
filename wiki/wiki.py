@@ -46,6 +46,8 @@ class PagesDB(db.Model):
 	url = db.StringProperty(required = True)
 	subject = db.StringProperty()
 	content = db.TextProperty(required = True)
+	modified = db.DateTimeProperty(auto_now_add = True)
+	version = db.IntegerProperty(required = True)
 
 
 class UserDB(db.Model):
@@ -106,7 +108,8 @@ def get_pages_from_db():
 	pages_db = db.GqlQuery("SELECT * FROM PagesDB")
 	pages = {}
 	for page_db in pages_db:
-		page = create_page(page_db.url, page_db.subject, page_db.content)
+		page = create_page(page_db.url, page_db.subject, page_db.content,
+			page_db.modified, page_db.version)
 		pages[page["url"]] = page
 	return pages
 
@@ -149,13 +152,14 @@ def get_from_memcache(key):
 		value = pickle.loads(value)
 	return value
 
-def create_page(url, subject, content):
+def create_page(url, subject, content, modified, version):
 	""" Creates a new page in the form a dict. """
-	t = datetime.datetime.now()
 	p = {}
 	p["url"] = url
 	p["subject"] = subject
 	p["content"] = content
+	p["modified"] = modified
+	p["version"] = version
 	return p
 
 def create_user(username, email, password_hash):
@@ -175,14 +179,15 @@ def delete_page(url):
 
 def insert_page(p):
 	t = datetime.datetime.now()
-	p["last_edited"] = t
+	p["modified"] = t
 	# First, remove the old entry from the database
-	delete_page(p["url"])
+	# delete_page(p["url"])
 	# Secondly, store the new page in the database
 	print "p=", p
 	print p["subject"]
 	page = PagesDB(url = p["url"], subject = p["subject"],
-		content = p["content"])
+		content = p["content"], modified=p["modified"],
+		version=p["version"])
 	page.put()
 	# Then first retrieve the dictionary containing all pages
 	# from memcache, update it with the newly inserted page
@@ -246,7 +251,7 @@ def initialize_db_if_necessary():
 	if not page:
 		failed = True
 		page = create_page("/","Welcome to my Wiki!",
-			"Content of first wiki page.", "admin")
+			"Content of first wiki page.", "admin", datetime.datetime.now(), 1)
 		insert_page(page)
 	return failed
 
@@ -278,7 +283,8 @@ class MainPage(Handler):
     	page = get_page(url)
     	if page:
     		self.render("page.html", logged_in_user=logged_in_user,
-    			url=page["url"], subject=page["subject"], content=page["content"])
+    			url=page["url"], subject=page["subject"], content=page["content"],
+    			modified=page["modified"], version=page["version"])
     	else:
     		new_url = '/_edit'+url
     		self.redirect(new_url)
@@ -287,9 +293,9 @@ class MainPage(Handler):
 
 class TestHandler(Handler):
 	def get(self):
-		p = create_page("/sundsvall", "sundsvall", "Former tram town in Sweden", "Niklas" )
-		page = { "/sundsvall", p}
-		memcache.set("pages", pickle.dumps(page))
+		pages = get_from_memcache("pages")
+		for p in pages:
+			print p
 
 
 class GetFromMemcache(Handler):
@@ -422,12 +428,17 @@ class EditPage(Handler):
 			if page:
 				subject = page["subject"]
 				content = page["content"]
+				created = page["created"]
+				version = page["version"]
 			else:
 				subject = url[1:]
 				content = ""
 				cookie = self.request.cookies.get('username')
+				created = datetime.datetime.now()
+				version = 0
 			self.render("edit_page.html", logged_in_user= logged_in_user,
-				url=url, subject=subject, content=content)
+				url=url, subject=subject, content=content,
+				created=created, version=version)
 		else:
 			self.redirect('/login')
 
@@ -436,10 +447,22 @@ class EditPage(Handler):
 		page["url"] = url
 		page["subject"] = url[1:]
 		page["content"] = self.request.get("content")
-		print "post p:", page
+		page["created"] = self.request.get("created")
+		page["version"] = self.request.get("version")
+		if not page["version"]:
+			print "Not page, version=1"
+			page["version"] = 1
+		else:
+			print "Page, version increment"
+			page["version"] = int(page["version"])+1
+ 		print "post p:", page
 		insert_page(page)
 		time.sleep(0.2)
 		self.redirect(url)
+
+class HistoryPage(Handler):
+	def get(self, url):
+		pass
 
 
 class WikiPage(Handler):
@@ -463,6 +486,7 @@ app = webapp2.WSGIApplication([
 	(r'/signup/?', SignupPage),
 	(r'/_test', TestHandler),
 	(r'/_edit'+PAGE_RE, EditPage),
+	(r'/_history'+PAGE_RE, HistoryPage),
 	(r'/_get_from_memcache', GetFromMemcache),
 	(r'/_fillmemcache',FillMemcache),
     (PAGE_RE, WikiPage),

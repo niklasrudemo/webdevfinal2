@@ -10,12 +10,16 @@
 	</head>
 
 	<body>
+		<input type="hidden" name="created" value="{{created}}">
+		<input type="hidden" name="version" value="{{version}}">
 		<h1><a href="/">/wiki/</a></h1>
 
 		<form method="post">
 			<label>
 				<div>content</div>
 				<textarea name="content">{{content}}</textarea>
+				<textarea name="created">{{created}}</textarea>
+				<textarea name="version">{{version}}</textarea>
 			</label>
 
 
