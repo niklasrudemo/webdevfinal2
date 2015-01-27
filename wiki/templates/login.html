@@ -1,9 +1,12 @@
 <div class"right">
-	edit
- 	| {{logged_in_user}} (<a href="/logout">logout</a>) | <a href="/signup">signup</a>
+	<a href="/signup">signup</a>
 </div>
 
     <h2>/login/</h2>
+
+    {% if message %}
+   	<div style="color:red" class="error">In order to edit <a href="{{url}}">{{url}}</a> you must first login.</div>
+   	{% endif %}
 
 	<form method="post">
 	<label>

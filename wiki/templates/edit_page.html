@@ -1,8 +1,7 @@
 <!DOCTYPE html>
 
 <div class"right">
-	 edit 
- 	| {{logged_in_user}} (<a href="../logout">logout</a>) | <a href="../signup">signup</a>
+	  {{logged_in_user}} (<a href="../logout">logout</a>) | <a href="../signup">signup</a>
 </div>
 
 <html>
@@ -15,24 +14,10 @@
 
 		<form method="post">
 			<label>
-				<div>subject</div>
-				<input type="text" name="subject" value="{{subject}}">
-			</label>
-
-			<label>
 				<div>content</div>
 				<textarea name="content">{{content}}</textarea>
 			</label>
 
-			<label>
-				<div>created by</div>
-				<textarea name="created_by">{{created_by}}</textarea>
-			</label>
-
-			<label>
-				<div>time created</div>
-				<textarea name="created">{{created}}</textarea>
-			</label>
 
 			<div class="error">{{error}}</div>
 

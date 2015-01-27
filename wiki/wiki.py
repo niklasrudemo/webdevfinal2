@@ -27,6 +27,7 @@ import string
 import time
 import unicodedata
 import webapp2
+from urllib import quote
 from google.appengine.ext import db
 from google.appengine.api import memcache
 
@@ -43,11 +44,8 @@ PAGE_RE = r'(/(?:[a-zA-Z0-9_-]+/?)*)'
 class PagesDB(db.Model):
 	""" Class for Pages in the database. """
 	url = db.StringProperty(required = True)
-	subject = db.StringProperty(required = True)
+	subject = db.StringProperty()
 	content = db.TextProperty(required = True)
-	created_by = db.StringProperty(required = True)
-	created = db.DateTimeProperty(auto_now_add = True)
-	last_edited = db.DateTimeProperty(required = True, auto_now_add = True)
 
 
 class UserDB(db.Model):
@@ -84,10 +82,20 @@ def make_pw_hash(name, pw):
     h_string = '%s,%s' % (h, salt)
     return h_string
 
-def is_email_valid(email):
-    if re.match(r"^[a-zA-Z0-9._]+\@[a-zA-Z0-9._]+\.[a-zA-Z]{3,}$", email)!=None:
-        return True
-    return False
+def is_password_invalid(password):
+    if re.match(r"^[a-zA-Z0-9._]{4,}$", password)!=None:
+        return False
+    return True
+
+def is_username_invalid(username):
+    if re.match(r"^[a-zA-Z0-9._]{2,}$", username)!=None:
+        return False
+    return True
+
+def is_email_invalid(email):
+    if re.match(r"^[a-zA-Z0-9._]+\@[a-zA-Z0-9._]+\.[a-zA-Z]{2,}$", email)!=None:
+        return False
+    return True
 
 def make_pw_hash_with_salt(name, pw, salt):
     h = hashlib.sha256(name + pw + salt).hexdigest()
@@ -95,19 +103,18 @@ def make_pw_hash_with_salt(name, pw, salt):
     return h_string
 
 def get_pages_from_db():
-	pages_db = db.GqlQuery("SELECT * FROM PagesDB ORDER BY created DESC ")
+	pages_db = db.GqlQuery("SELECT * FROM PagesDB")
 	pages = {}
 	for page_db in pages_db:
-		page = create_page(page_db.url, page_db.subject, page_db.content,
-			page_db.created_by)
+		page = create_page(page_db.url, page_db.subject, page_db.content)
 		pages[page["url"]] = page
 	return pages
 
 def get_users_from_db():
-	users_db = db.GqlQuery("SELECT * FROM UserDB ORDER BY created DESC ")
+	users_db = db.GqlQuery("SELECT * FROM UserDB")
 	users = {}
 	for user_db in users_db:
-		user = create_user(user_db.username, user_db.email, user_db.password_hash, user_db.created)
+		user = create_user(user_db.username, user_db.email, user_db.password_hash)
 		users[user["username"]] = user
 	if users == {}:
 		users = None
@@ -142,16 +149,13 @@ def get_from_memcache(key):
 		value = pickle.loads(value)
 	return value
 
-def create_page(url, subject, content, created_by):
+def create_page(url, subject, content):
 	""" Creates a new page in the form a dict. """
 	t = datetime.datetime.now()
 	p = {}
 	p["url"] = url
 	p["subject"] = subject
 	p["content"] = content
-	p["created_by"] = created_by
-	p["created"] = t
-	p["last_edited"] = t
 	return p
 
 def create_user(username, email, password_hash):
@@ -161,16 +165,24 @@ def create_user(username, email, password_hash):
 	u["username"] = username
 	u["email"] = email
 	u["password_hash"] = password_hash
-	u["created"] = t
 	return u
+
+def delete_page(url):
+	pages = PagesDB.all()
+	for page in pages:
+		if page.url == url:
+			page.delete()
 
 def insert_page(p):
 	t = datetime.datetime.now()
 	p["last_edited"] = t
-	# First store the new page in the database
+	# First, remove the old entry from the database
+	delete_page(p["url"])
+	# Secondly, store the new page in the database
+	print "p=", p
+	print p["subject"]
 	page = PagesDB(url = p["url"], subject = p["subject"],
-		content = p["content"], created_by = p["created_by"],
-		created = p["created"], last_edited = t)
+		content = p["content"])
 	page.put()
 	# Then first retrieve the dictionary containing all pages
 	# from memcache, update it with the newly inserted page
@@ -204,13 +216,12 @@ def get_page(url):
 		else:
 			return None
 
+
 def get_users():
     users = get_from_memcache("users")
     if not users:
         users = get_users_from_db()
         store_to_memcache("users", users)
-    print "Inside get_users"
-    print users
     return users
 
 def get_logged_in_user(cookie):
@@ -219,6 +230,26 @@ def get_logged_in_user(cookie):
 		return cookie.split('|')[0]
 	else:
 		return None
+
+def initialize_db_if_necessary():
+	""" Checks if DB is empty; if so, creates first page and user """
+	users = get_users()
+	failed = False
+	if not users:
+		failed = True
+		username = "admin"
+		password = "sluring42"
+		pw_hash = make_pw_hash(username, password)
+		user = create_user("admin", "admin@rudemo.com", pw_hash)
+		insert_user(user)
+	page = get_page("/")
+	if not page:
+		failed = True
+		page = create_page("/","Welcome to my Wiki!",
+			"Content of first wiki page.", "admin")
+		insert_page(page)
+	return failed
+
 
 
 ############################################
@@ -244,16 +275,14 @@ class MainPage(Handler):
     	# For the fron page, the URL is not passed as a parameter,
     	# therefore we have to set it ourselves.
     	url = "/"
-    	if logged_in_user:
-    		page = get_page(url)
-    		if page:
-    			self.render("page.html", logged_in_user=logged_in_user,
-    				url=page["url"], subject=page["subject"], content=page["content"])
-    		else:
-    			new_url = '/_edit'+url
-    			self.redirect(new_url)
+    	page = get_page(url)
+    	if page:
+    		self.render("page.html", logged_in_user=logged_in_user,
+    			url=page["url"], subject=page["subject"], content=page["content"])
     	else:
-    		self.redirect("/login")
+    		new_url = '/_edit'+url
+    		self.redirect(new_url)
+
 
 
 class TestHandler(Handler):
@@ -281,31 +310,34 @@ class LogoutPage(Handler):
         self.response.headers.add_header('Set-Cookie',
         	'username=%s; Path=/' % nullString)
         time.sleep(0.2)
-        self.redirect('/login')
+        self.redirect('/')
 
 
 class LoginPage(Handler):
     def post(self):
+    	if initialize_db_if_necessary():
+    		self.redirect("/")
         username = self.request.get("username")
         password = self.request.get("password")
         users = get_users()
         error = None
-        for user in users:
-            if users[user]["username"] == username:
-                salt = users[user]["password_hash"].split(',')[1]
-                password_hash = make_pw_hash_with_salt(username, password,
-                	salt)
-                if password_hash == users[user]["password_hash"]:
-                    self.response.headers.add_header('Set-Cookie',
-                    	'username=%s' % make_secure_val(username))
-                    self.redirect("/")
-                else:
-                    error="Incorrect login"
-                    logging.error("incorrect login: %s" % users[user]["username"])
-                    self.render("login.html", error=error)
-                return
+        if users:
+	        for user in users:
+	            if users[user]["username"] == username:
+	                salt = users[user]["password_hash"].split(',')[1]
+	                password_hash = make_pw_hash_with_salt(username, password,
+	                	salt)
+	                if password_hash == users[user]["password_hash"]:
+	                    self.response.headers.add_header('Set-Cookie',
+	                    	'username=%s' % make_secure_val(username))
+	                    self.redirect("/")
+	                else:
+	                    error="Incorrect login"
+	                    self.render("login.html", error=error,
+	                    	message=True)
+	                return
         error="Incorrect login"
-        self.render("login.html", error=error)
+        self.render("login.html", error=error, message=False)
    
     def get(self):
     	cookie = self.request.cookies.get('username')
@@ -323,30 +355,46 @@ class SignupPage(Handler):
         password = self.request.get("password")
         verify = self.request.get("verify")
         users = get_users()
-        error = None
-        print "#Inside SignupPage"
+        error_message = None
+        error_field = None
         if users:
         	for user in users:
         		if username == users[user]["username"]:
-        			error = "That user already exists."
+        			error_message = "That user already exists."
+        			error_field = "username"
         			print error
         			break
         	if email == users[user]["email"]:
-        		error = "Email address already exists."
-        if error:
-        	self.render("signup.html", error=error, username=username,
-        		email = email, password=password, verify=verify)
-        elif username == "":
-        	error = "The username cannot be empty"
-        	self.render("signup.html", error=error, username=username,
+        		error_message = "Email address already exists."
+        		error_field = "email"
+        if error_message:
+        	self.render("signup.html", error_message=error_message,
+        		username=username, email = email, password=password, verify=verify)
+        elif is_username_invalid(username):
+        	error_message = "The username is invalid\
+        		Only use a-zA-Z0-9. Minimum two characters."
+        	error_field = "username"
+        	self.render("signup.html", error_message=error_message,
+        		error_field = error_field, username=username,
         		email = email, password=password, verify=verify)
         elif password != verify:
-        	error = "The passwords do not match"
-        	self.render("signup.html", error=error, username=username,
+        	error_message = "The passwords do not match"
+        	error_field = "password"
+        	self.render("signup.html", error_message=error_message,
+        		error_field = error_field, username=username,
         		email = email)
-        elif not is_email_valid(email):
-        	error = "The email address is invalid"
-        	self.render("signup.html", error=error, username=username,
+        elif is_password_invalid(password):
+        	error_message = "Passwords contain illegal characters. \
+        		Only use a-zA-Z0-9. Minimum four characters."
+        	error_field = "password"
+        	self.render("signup.html", error_message=error_message,
+        		error_field = error_field, username=username,
+        		email = email)
+        elif is_email_invalid(email):
+        	error_message = "The email address is invalid"
+        	error_field = "email"
+        	self.render("signup.html", error_message=error_message,
+        		error_field = error_field, username=username,
         		email = email, password=password, verify=verify)
         else:
         	password_hash = make_pw_hash(username, password)
@@ -367,33 +415,28 @@ class EditPage(Handler):
 	def get(self, url):
 		cookie = self.request.cookies.get('username')
 		logged_in_user = get_logged_in_user(cookie)
-		if url == "/_edit":
-			url = "/"
-		page = get_page(url)
-		if page:
-			subject = page["subject"]
-			content = page["content"]
-			created_by = page["created_by"]
-			created = page["created"]
+		if logged_in_user:
+			if url == "/_edit":
+				url = "/"
+			page = get_page(url)
+			if page:
+				subject = page["subject"]
+				content = page["content"]
+			else:
+				subject = url[1:]
+				content = ""
+				cookie = self.request.cookies.get('username')
+			self.render("edit_page.html", logged_in_user= logged_in_user,
+				url=url, subject=subject, content=content)
 		else:
-			subject = url[1:]
-			content = ""
-			cookie = self.request.cookies.get('username')
-			created_by = get_logged_in_user(cookie)
-			created = datetime.datetime.now()
-		self.render("edit_page.html", logged_in_user= logged_in_user,
-			url=url, subject=subject, content=content,
-			created_by=created_by, created=created)
+			self.redirect('/login')
 
 	def post(self, url):
 		page = {}
 		page["url"] = url
-		page["subject"] = self.request.get("subject")
+		page["subject"] = url[1:]
 		page["content"] = self.request.get("content")
-		page["created_by"] = self.request.get("created_by")
-		page["created"] = datetime.datetime.strptime(
-			self.request.get("created"), "%Y-%m-%d %H:%M:%S.%f")
-		page["last_edited"] = datetime.datetime.now()
+		print "post p:", page
 		insert_page(page)
 		time.sleep(0.2)
 		self.redirect(url)

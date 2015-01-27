@@ -1,27 +1,39 @@
 <!DOCTYPE html>
 
 <div class"right">
-	 edit 
- 	| {{logged_in_user}} (<a href="../logout">logout</a>) | <a href="../signup">signup</a>
+  <a href="../login">login</a>
 </div>
 
     <h2>/user registration/</h2>
-
-	<div class="error">{{error}}</div>
+    {% if error_message %}
+	<div style="color:red" class="error">{{error_message}}</div>
+	{% endif %}
 
 	<form method="post">
 	<label>
+		{% if error_field == "username" %}
+		<div style="color:red">Username</div>
+		{% else %}
 		<div>Username</div>
+		{% endif %}	
 		<input type="text" name="username" value="{{username}}">
 	</label>
 
 	<label>
+		{% if error_field == "email" %}
+		<div style="color:red">Email</div>
+		{% else %}	
 		<div>Email</div>
+		{% endif %}	
 		<input type="text" name="email" value="{{email}}">
 	</label>
 
 	<label>
+		{% if error_field == "password" %}
+		<div style="color:red">Password</div>
+		{% else %}
 		<div>Password</div>
+		{% endif %}
 		<input type="password" name="password" value="{{password}}">
 	</label>
 
