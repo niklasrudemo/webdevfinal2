@@ -428,17 +428,18 @@ class EditPage(Handler):
 			if page:
 				subject = page["subject"]
 				content = page["content"]
-				created = page["created"]
+				modified = page["modified"]
 				version = page["version"]
 			else:
 				subject = url[1:]
 				content = ""
 				cookie = self.request.cookies.get('username')
-				created = datetime.datetime.now()
+				modified = datetime.datetime.now()
 				version = 0
+			print "version:", version
 			self.render("edit_page.html", logged_in_user= logged_in_user,
 				url=url, subject=subject, content=content,
-				created=created, version=version)
+				modified=modified, version=version)
 		else:
 			self.redirect('/login')
 
@@ -447,7 +448,7 @@ class EditPage(Handler):
 		page["url"] = url
 		page["subject"] = url[1:]
 		page["content"] = self.request.get("content")
-		page["created"] = self.request.get("created")
+		page["modified"] = self.request.get("modified")
 		page["version"] = self.request.get("version")
 		if not page["version"]:
 			print "Not page, version=1"
@@ -462,6 +463,8 @@ class EditPage(Handler):
 
 class HistoryPage(Handler):
 	def get(self, url):
+		print "History"
+		self.render("history.html")
 		pass
 
 
@@ -485,8 +488,8 @@ app = webapp2.WSGIApplication([
 	(r'/login/?', LoginPage),
 	(r'/signup/?', SignupPage),
 	(r'/_test', TestHandler),
+	(r'/_history/?'+PAGE_RE, HistoryPage),
 	(r'/_edit'+PAGE_RE, EditPage),
-	(r'/_history'+PAGE_RE, HistoryPage),
 	(r'/_get_from_memcache', GetFromMemcache),
 	(r'/_fillmemcache',FillMemcache),
     (PAGE_RE, WikiPage),
