@@ -56,7 +56,7 @@ class UserDB(db.Model):
 	username = db.StringProperty(required = True)
 	email = db.StringProperty(required = True)
 	password_hash = db.StringProperty(required = True)
-	created = db.DateTimeProperty(auto_now_add = True)
+	created = db.DateTimeProperty(auto_now_add = True) 
 
 
 ############################################
@@ -110,6 +110,7 @@ def extract_real_url(version_url):
 	return version_url[version_url.find("/",4):]
 
 def get_pages_from_db():
+	"""" Returns list of the current version of each page from DB """
 	pages_db = db.GqlQuery("SELECT * FROM PagesDB")
 	pages = {}
 	for page_db in pages_db:
@@ -139,6 +140,7 @@ def get_max_version(url):
 	return maxversion
 
 def get_users_from_db():
+	""" Returns a dictionary of users """
 	users_db = db.GqlQuery("SELECT * FROM UserDB")
 	users = {}
 	for user_db in users_db:
@@ -197,19 +199,19 @@ def create_user(username, email, password_hash):
 	return u
 
 def delete_page(url):
+	""" deletes the page with the given url [currently not used] """
 	pages = PagesDB.all()
 	for page in pages:
 		if page.url == url:
 			page.delete()
 
 def insert_page(p):
+	""" Inserts page p into the database and to memcache """
 	t = datetime.datetime.now()
 	p["modified"] = t
 	# First, remove the old entry from the database
 	# delete_page(p["url"])
 	# Secondly, store the new page in the database
-	print "p=", p
-	print p["subject"]
 	page = PagesDB(url = p["url"], subject = p["subject"],
 		content = p["content"], modified=p["modified"],
 		version=p["version"])
@@ -224,6 +226,7 @@ def insert_page(p):
 	store_to_memcache("pages", pages)
 
 def insert_user(u):
+	""" Inserts user u to database and memcache """
 	user = UserDB(username=u["username"], email=u["email"],
 		password_hash=u["password_hash"])
 	user.put()
@@ -238,12 +241,7 @@ def get_page(url, version=None):
 	if version:
 		url = extract_real_url(url)
 		pages = get_all_pages_from_db(url)
-		print "In get_page"
-		print "URL:", url
-		print "Version:", version
-		print len(pages)
 		for page in pages:
-			print page
 			if int(page["version"]) == int(version):
 				return page
 		return None
@@ -259,17 +257,13 @@ def get_page(url, version=None):
 			else:
 				return None
 
-def get_all_pages(url):
-	""" Get all pages for a given url, including earlier versions """
-	pages = get_from_memcache("pages")
-	new_pages = []
-
 def get_users():
-    users = get_from_memcache("users")
-    if not users:
-        users = get_users_from_db()
-        store_to_memcache("users", users)
-    return users
+	""" returns dictionary of users """
+	users = get_from_memcache("users")
+	if not users:
+		users = get_users_from_db()
+		store_to_memcache("users", users)
+	return users
 
 def get_logged_in_user(cookie):
 	""" Returns the current user """
@@ -330,31 +324,6 @@ class MainPage(Handler):
     	else:
     		new_url = '/_edit'+url
     		self.redirect(new_url)
-
-
-
-class TestHandler(Handler):
-	def get(self):
-		pages = get_from_memcache("pages")
-		print "/_test"
-		print "Here follows the pages"
-		print pages["/"]["version"]
-		for p in pages:
-			print "##########"
-			print type(p)
-			print p
-
-
-class GetFromMemcache(Handler):
-	def get(self):
-		pages = get_from_memcache("pages")
-		store_to_memcache("pages", pages)
-
-
-class FillMemcache(Handler):
-	def get(self):
-		pages = get_pages_from_db()
-		store_to_memcache("pages", pages)
 
 
 class LogoutPage(Handler):
@@ -465,17 +434,12 @@ class SignupPage(Handler):
 
 class EditPage(Handler):
 	def get(self, url, version=None):
-		print "in GET"
 		cookie = self.request.cookies.get('username')
 		logged_in_user = get_logged_in_user(cookie)
 		if logged_in_user:
 			if url == "/_edit":
 				url = "/"
-			if version:
-				print "In EditPage, version=", version
 			page = get_page(url, version)
-			print "## ## ##"
-			print page
 			if page:
 				subject = page["subject"]
 				content = page["content"]
@@ -487,7 +451,6 @@ class EditPage(Handler):
 				cookie = self.request.cookies.get('username')
 				modified = datetime.datetime.now()
 				version = 0
-			print "version:", version
 			self.render("edit_page.html", logged_in_user= logged_in_user,
 				url=url, subject=subject, content=content,
 				modified=modified, version=version)
@@ -495,7 +458,6 @@ class EditPage(Handler):
 			self.redirect('/login')
 
 	def post(self, url, version=None):
-		print "In POST"
 		page = {}
 		# If the version parameter is set, we are editing a historical
 		# page, and the URL needs to be adjusted
@@ -505,12 +467,12 @@ class EditPage(Handler):
 		page["subject"] = url[1:]
 		page["content"] = self.request.get("content")
 		page["modified"] = self.request.get("modified")
-		page["version"] = int(self.request.get("version"))
-		print "Page version", page["version"]
-		print "Page content", page["content"]
+		version_str = self.request.get("version")
+		if version_str.isdigit():
+			page["version"] = int(self.request.get("version"))
+		else:
+			page["version"] = 1
 		if not page["version"]:
-			print "Not page"
-			print page
 			page["version"] = 1
 		else:
 			# If editing a historical version, version should not 
@@ -521,9 +483,7 @@ class EditPage(Handler):
 			if version:
 				page["version"] = get_max_version(url)+1
 			else:
-				print "Page, version increment"
 				page["version"] = int(page["version"])+1
- 		print "post p:", page
 		insert_page(page)
 		time.sleep(0.2)
 		self.redirect(url)
@@ -531,23 +491,14 @@ class EditPage(Handler):
 
 class HistoryPage(Handler):
 	def get(self, url):
-		print "History"
 		pages = get_all_pages_from_db(url)
-		for page in pages:
-			print page
 		self.render("history.html", pages=pages)
 
 
 class HistoryVersionPage(Handler):
 	def get(self, url, version):
-		print "History, version:", version
-		print "URL:", url
 		url = extract_real_url(url)
 		pages = get_all_pages_from_db(url)
-		print url
-		print len(pages)
-		for page in pages:
-			print page
 		self.render("history.html", pages=pages)
 
 
@@ -571,13 +522,10 @@ app = webapp2.WSGIApplication([
 	(r'/logout/?', LogoutPage),
 	(r'/login/?', LoginPage),
 	(r'/signup/?', SignupPage),
-	(r'/_test', TestHandler),
 	(r'/_history'+HISTORY_PAGE_RE, HistoryVersionPage),
 	(r'/_history'+PAGE_RE, HistoryPage),
 	(r'/_edit'+HISTORY_PAGE_RE, EditPage),
 	(r'/_edit'+PAGE_RE, EditPage),
-	(r'/_get_from_memcache', GetFromMemcache),
-	(r'/_fillmemcache',FillMemcache),
     (PAGE_RE, WikiPage),
         ],
                                                                 debug = True)
