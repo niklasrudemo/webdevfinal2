@@ -1,6 +1,6 @@
 <div class"right">
 	{% if logged_in_user %}
-	<a href="/_edit{{url}}"> edit</a> |
+	<a href="/_edit{{url}}"> edit</a> | <a href="/_history{{url}}"> history</a> | 
 	{% endif %}
  	{{logged_in_user}} (<a href="/logout">logout</a>) | <a href="/signup">signup</a>
 </div>

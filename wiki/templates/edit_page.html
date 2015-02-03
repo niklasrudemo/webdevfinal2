@@ -12,15 +12,15 @@
 	<body>
 		<h1><a href="/">/wiki/</a></h1>
 
-		<input type=hidden name="modified" value="{{modified}}">
-		<input type=hidden name="version" value="{{version}}">
+
 
 		<form method="post">
 			<label>
 				<div>content</div>
 				<textarea name="content">{{content}}</textarea>
 			</label>
-
+		<input type="hidden" id="version" name="version" value="{{version}}">
+		<input type=hidden name="modified" value="{{modified}}">
 
 			<div class="error">{{error}}</div>
 

@@ -1,11 +1,11 @@
 <div class"right">
 	{% if logged_in_user %}
-	<a href="/_edit{{url}}"> edit</a> | {{logged_in_user}}
+	<a href="/_edit{{url}}"> edit</a> | <a href="/_history{{url}}">history</a> | {{logged_in_user}}
  	(<a href="/logout">logout</a>)
  	{% endif %} 
  	<a href="/login">login</a> | <a href="/signup">signup</a>
 </div>
-	<input type="hidden" name="created" value="{{created}}">
+	<input type="hidden" name="modified" value="{{modified}}">
 	<input type="hidden" name="version" value="{{version}}">
 	<hr>
 

@@ -36,6 +36,7 @@ jinja_env = jinja2.Environment(loader = jinja2.FileSystemLoader(template_dir),
                                                            autoescape = False)
 
 PAGE_RE = r'(/(?:[a-zA-Z0-9_-]+/?)*)'
+HISTORY_PAGE_RE = r'(/_v/([0-9]?)/(?:[a-zA-Z0-9_-]+/?)*)'
 
 ############################################
 ############ DATABASE DEFINITIONS ##########
@@ -104,6 +105,10 @@ def make_pw_hash_with_salt(name, pw, salt):
     h_string = '%s,%s' % (h, salt)
     return h_string
 
+def extract_real_url(version_url):
+	""" Takes a URL of the form '/_v/test' and return '/test'"""
+	return version_url[version_url.find("/",4):]
+
 def get_pages_from_db():
 	pages_db = db.GqlQuery("SELECT * FROM PagesDB")
 	pages = {}
@@ -112,6 +117,26 @@ def get_pages_from_db():
 			page_db.modified, page_db.version)
 		pages[page["url"]] = page
 	return pages
+
+def get_all_pages_from_db(url):
+	""" Returns all pages from db """
+	pages_db = db.GqlQuery("SELECT * FROM PagesDB WHERE url='%s' ORDER BY version DESC" % url)
+	pages = []
+	for page_db in pages_db:
+		page = create_page(page_db.url, page_db.subject, page_db.content,
+			page_db.modified, page_db.version)
+		pages.append(page)
+	return pages
+
+def get_max_version(url):
+	""" Returns the highest version number for the URL """
+	pages = get_all_pages_from_db(url)
+	maxversion = 0
+	for page in pages:
+		current_version = int(page["version"])
+		if current_version>maxversion:
+			maxversion = current_version
+	return maxversion
 
 def get_users_from_db():
 	users_db = db.GqlQuery("SELECT * FROM UserDB")
@@ -208,19 +233,36 @@ def insert_user(u):
 	users[u["username"]] = u
 	store_to_memcache("users", users)
 
-def get_page(url):
+def get_page(url, version=None):
 	""" Returns the page for a given url, from memcache or DB """
-	pages = get_from_memcache("pages")
-	if pages and url in pages:
-		return pages[url]
+	if version:
+		url = extract_real_url(url)
+		pages = get_all_pages_from_db(url)
+		print "In get_page"
+		print "URL:", url
+		print "Version:", version
+		print len(pages)
+		for page in pages:
+			print page
+			if int(page["version"]) == int(version):
+				return page
+		return None
 	else:
-		pages = get_pages_from_db()
-		store_to_memcache("pages", pages)
+		pages = get_from_memcache("pages")
 		if pages and url in pages:
 			return pages[url]
 		else:
-			return None
+			pages = get_pages_from_db()
+			store_to_memcache("pages", pages)
+			if pages and url in pages:
+				return pages[url]
+			else:
+				return None
 
+def get_all_pages(url):
+	""" Get all pages for a given url, including earlier versions """
+	pages = get_from_memcache("pages")
+	new_pages = []
 
 def get_users():
     users = get_from_memcache("users")
@@ -250,8 +292,8 @@ def initialize_db_if_necessary():
 	page = get_page("/")
 	if not page:
 		failed = True
-		page = create_page("/","Welcome to my Wiki!",
-			"Content of first wiki page.", "admin", datetime.datetime.now(), 1)
+		page = create_page("/","",
+			"Content of first wiki page.", datetime.datetime.now(), 1)
 		insert_page(page)
 	return failed
 
@@ -294,7 +336,12 @@ class MainPage(Handler):
 class TestHandler(Handler):
 	def get(self):
 		pages = get_from_memcache("pages")
+		print "/_test"
+		print "Here follows the pages"
+		print pages["/"]["version"]
 		for p in pages:
+			print "##########"
+			print type(p)
 			print p
 
 
@@ -416,15 +463,19 @@ class SignupPage(Handler):
     	logged_in_user = get_logged_in_user(cookie)
         self.render("signup.html", logged_in_user=logged_in_user)
 
-
 class EditPage(Handler):
-	def get(self, url):
+	def get(self, url, version=None):
+		print "in GET"
 		cookie = self.request.cookies.get('username')
 		logged_in_user = get_logged_in_user(cookie)
 		if logged_in_user:
 			if url == "/_edit":
 				url = "/"
-			page = get_page(url)
+			if version:
+				print "In EditPage, version=", version
+			page = get_page(url, version)
+			print "## ## ##"
+			print page
 			if page:
 				subject = page["subject"]
 				content = page["content"]
@@ -443,29 +494,61 @@ class EditPage(Handler):
 		else:
 			self.redirect('/login')
 
-	def post(self, url):
+	def post(self, url, version=None):
+		print "In POST"
 		page = {}
+		# If the version parameter is set, we are editing a historical
+		# page, and the URL needs to be adjusted
+		if version:
+			url = extract_real_url(url)
 		page["url"] = url
 		page["subject"] = url[1:]
 		page["content"] = self.request.get("content")
 		page["modified"] = self.request.get("modified")
-		page["version"] = self.request.get("version")
+		page["version"] = int(self.request.get("version"))
+		print "Page version", page["version"]
+		print "Page content", page["content"]
 		if not page["version"]:
-			print "Not page, version=1"
+			print "Not page"
+			print page
 			page["version"] = 1
 		else:
-			print "Page, version increment"
-			page["version"] = int(page["version"])+1
+			# If editing a historical version, version should not 
+			# be incremented from the current version number, but from
+			# the highest overall, so that the new page gets the highest 
+			# version number. This case is signalled by the setting
+			# the version parameter
+			if version:
+				page["version"] = get_max_version(url)+1
+			else:
+				print "Page, version increment"
+				page["version"] = int(page["version"])+1
  		print "post p:", page
 		insert_page(page)
 		time.sleep(0.2)
 		self.redirect(url)
 
+
 class HistoryPage(Handler):
 	def get(self, url):
 		print "History"
-		self.render("history.html")
-		pass
+		pages = get_all_pages_from_db(url)
+		for page in pages:
+			print page
+		self.render("history.html", pages=pages)
+
+
+class HistoryVersionPage(Handler):
+	def get(self, url, version):
+		print "History, version:", version
+		print "URL:", url
+		url = extract_real_url(url)
+		pages = get_all_pages_from_db(url)
+		print url
+		print len(pages)
+		for page in pages:
+			print page
+		self.render("history.html", pages=pages)
 
 
 class WikiPage(Handler):
@@ -476,7 +559,8 @@ class WikiPage(Handler):
     	if page:
     		self.render("page.html", logged_in_user=logged_in_user,
     			url=page["url"], subject=page["subject"],
-    			content=page["content"])
+    			content=page["content"], modified=page["modified"],
+    			version=page["version"])
     	else:
     		new_url = '/_edit'+url
     		self.redirect(new_url)
@@ -488,7 +572,9 @@ app = webapp2.WSGIApplication([
 	(r'/login/?', LoginPage),
 	(r'/signup/?', SignupPage),
 	(r'/_test', TestHandler),
-	(r'/_history/?'+PAGE_RE, HistoryPage),
+	(r'/_history'+HISTORY_PAGE_RE, HistoryVersionPage),
+	(r'/_history'+PAGE_RE, HistoryPage),
+	(r'/_edit'+HISTORY_PAGE_RE, EditPage),
 	(r'/_edit'+PAGE_RE, EditPage),
 	(r'/_get_from_memcache', GetFromMemcache),
 	(r'/_fillmemcache',FillMemcache),
